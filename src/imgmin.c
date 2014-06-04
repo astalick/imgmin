@@ -27,6 +27,7 @@
 #include <float.h> /* DBL_EPSILON */
 #include <wand/MagickWand.h>
 #include "imgmin.h"
+#include "dssim.h"
 
 #ifndef IMGMIN_LIB /* not the Apache mopdule... (we assume cmdline) */
 #define IMGMIN_STANDALONE
@@ -175,6 +176,63 @@ static int enough_colors(MagickWand *mw, const struct imgmin_options *opt)
         unique_colors(mw) == 256;
 }
 
+static double calc_diff(MagickWand *mw, MagickWand *tmp, ExceptionInfo *e)
+{
+    static double distortion[CompositeChannels+1];
+    double error;
+
+    /* quantify distortion produced by quality change
+     * NOTE: writes to distortion[], which we don't care about
+     * and to image(tmp)->error, which we do care about
+     */
+    (void) GetImageDistortion(GetImageFromMagickWand(tmp),
+                              GetImageFromMagickWand(mw),
+#if MagickLibVersion < 0x630 /* FIXME: available in 0x660, not available in 0x628, not sure which version it was introduced in */
+                              MeanAbsoluteErrorMetric,
+#else
+                              MeanErrorPerPixelMetric,
+#endif
+                              distortion, e);
+    /* FIXME: in perlmagick i was getting back a number [0,255.0],
+     * here something else is happening... the hardcoded divisor
+     * is an imperfect attempt to scale the number back to the
+     * perlmagick results. I really need to look into this.
+     */
+    error = GetImageFromMagickWand(tmp)->error.mean_error_per_pixel / 380.;
+    return error;
+}
+
+static double calc_diff2(MagickWand *mw, MagickWand *tmp, ExceptionInfo *e)
+{
+
+    /*
+     * do this crap once at the start
+     */
+    const Image         *i = GetImageFromMagickWand(mw);
+    const size_t         w = MagickGetImageWidth   (mw),
+                         h = MagickGetImageHeight  (mw);
+    const double         g = MagickGetImageGamma   (mw);
+    const PixelPacket  *pp = GetVirtualPixels(i, 0, 0, w, h, e);
+    dssim_info       *dinf = dssim_init();
+
+    dssim_set_original(dinf, pp, (int)w, (int)h, g);
+
+    /*
+     * do this crap every time...
+     */
+    const Image        *i2 = GetImageFromMagickWand(tmp);
+    const double        g2 = MagickGetImageGamma   (tmp);
+    const PixelPacket *pp2 = GetVirtualPixels(i2, 0, 0, w, h, e);
+    int                mod = dssim_set_modified(dinf, pp2, (int)w, (int)h, g2);
+    double           dssim = dssim_compare(dinf, NULL);
+
+    printf("%hhu %hhu %g\n", pp->red, pp2->red, dssim);
+
+    dssim_dealloc(dinf);
+
+    return dssim;
+}
+
 /*
  * given a source image, a destination filepath and a set of image metadata thresholds,
  * search for the lowest-quality version of the source image whose properties fall within our
@@ -229,7 +287,6 @@ MagickWand * search_quality(MagickWand *mw, const char *dst,
          */
         while (qmax > qmin + 1 && steps < opt->max_steps)
         {
-            double distortion[CompositeChannels+1];
             double error;
             double density_ratio;
             unsigned q;
@@ -247,27 +304,9 @@ MagickWand * search_quality(MagickWand *mw, const char *dst,
             tmp = NewMagickWand();
             MagickReadImage(tmp, tmpfile);
 
-            /* quantify distortion produced by quality change
-             * NOTE: writes to distortion[], which we don't care about
-             * and to image(tmp)->error, which we do care about
-             */
-            (void) GetImageDistortion(GetImageFromMagickWand(tmp),
-                                      GetImageFromMagickWand(mw),
-#if MagickLibVersion < 0x630 /* FIXME: available in 0x660, not available in 0x628, not sure which version it was introduced in */
-                                      MeanAbsoluteErrorMetric,
-#else
-                                      MeanErrorPerPixelMetric,
-#endif
-                                      distortion,
-                                      exception);
-            /* FIXME: in perlmagick i was getting back a number [0,255.0],
-             * here something else is happening... the hardcoded divisor
-             * is an imperfect attempt to scale the number back to the
-             * perlmagick results. I really need to look into this.
-             */
-            error = GetImageFromMagickWand(tmp)->error.mean_error_per_pixel / 380.;
+            error = calc_diff2(mw, tmp, exception);
             density_ratio = fabs(color_density(tmp) - original_density) / original_density;
-        
+
             /* eliminate half search space based on whether distortion within thresholds */
             if (error > opt->error_threshold || density_ratio > opt->color_density_ratio)
             {

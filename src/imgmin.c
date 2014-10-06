@@ -28,6 +28,7 @@
 #include <wand/MagickWand.h>
 #include "imgmin.h"
 #include "dssim.h"
+#include "interpolate.h"
 
 #ifndef IMGMIN_LIB /* not the Apache mopdule... (we assume cmdline) */
 #define IMGMIN_STANDALONE
@@ -266,6 +267,12 @@ MagickWand * search_quality(MagickWand *mw, const char *dst,
         unsigned qmin = opt->quality_out_min;
         unsigned steps = 0;
 
+        point_xy points[3] = {
+            {74.5, 1.0}, // quality is a fraction to avoid two identical points (new points added have integer q)
+            {12.5, 6.0},
+            {99.99, 0},
+        };
+
         /*
          * binary search of quality space for optimally lowest quality that
          * produces an acceptable level of distortion
@@ -274,9 +281,17 @@ MagickWand * search_quality(MagickWand *mw, const char *dst,
         {
             double density_ratio;
             unsigned q;
+            double poly[3];
 
-            steps++;
-            q = (qmax + qmin) / 2;
+            /* Use polynomial interpolation to find candidate q better than bisection
+              (falling back to bisection if the curve has roots out of the qmin/qmax range) */
+
+            // Compute curve from 3 points to estimate how quality/error ratio looks like
+            quadratic_polynomial_from_points(points, poly);
+
+            // Shift the curve to cross 0 at the desired quality
+            poly[2] -= opt->error_threshold;
+            q = root_in_range(poly, qmin + 1, qmax - 1, (qmax + qmin) / 2);
 
             /* change quality */
             tmp = CloneMagickWand(mw);
@@ -309,6 +324,11 @@ MagickWand * search_quality(MagickWand *mw, const char *dst,
             } else {
                 qmax = q;
             }
+
+            /* Save the result as a point in the curve for the next estimation */
+            points[steps%3] = (point_xy){q, error};
+            steps++;
+
             if (opt->show_progress)
             {
                 fprintf(stdout, "%.2f/%.2f@%u ", error, density_ratio, q);

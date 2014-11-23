@@ -58,7 +58,7 @@ inline static double sign(double x) {
 double root_in_range(double poly[static 3], double min, double max, double fallback) {
 	const double delta = poly[1]*poly[1] - 4.0 * poly[0] * poly[2];
 
-	if (delta) {
+	if (delta > 0) {
 		const double q = -0.5 * (poly[1] + sign(poly[1]) * sqrt(delta));
 
 		const double x1 = q / poly[0];

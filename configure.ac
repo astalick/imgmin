@@ -5,7 +5,7 @@ AC_PREREQ([2.59])
 AC_INIT([imgmin], [0.7], [https://github.com/rflynn/imgmin/issues])
 AC_CONFIG_SRCDIR([src])
 
-AM_INIT_AUTOMAKE([imgmin], [0.7])
+AM_INIT_AUTOMAKE
 
 AC_CONFIG_HEADERS([config.h])
 
@@ -21,9 +21,6 @@ AC_CHECK_LIB([m], [log])
 #PKG_CHECK_MODULES([MagickWand], [MagickWand])
 AC_CHECK_PROGS(MAGICK_CONFIG, MagickWand-config Magick-config, "")
 
-# check for apache's apxs/apxs2 tool...
-AC_CHECK_PROGS(APXS, apxs2 apxs, "")
-
 # Checks for header files.
 AC_CHECK_HEADERS([fcntl.h float.h stdlib.h string.h unistd.h])
 
@@ -38,7 +35,6 @@ AC_FUNC_STRTOD
 AC_CHECK_FUNCS([mkdir])
 
 AC_CONFIG_FILES([Makefile
-                 src/Makefile
-                 src/apache2/Makefile])
+                 src/Makefile])
 
 AC_OUTPUT

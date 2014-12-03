@@ -10,7 +10,7 @@ fi
 
 filesize()
 {
-    echo $(du -b "$1" | cut -f1)
+    echo $(stat -f%z "$1")
 }
 
 pct_less()
